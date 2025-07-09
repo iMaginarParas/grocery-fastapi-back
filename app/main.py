@@ -171,6 +171,41 @@ def delete_table_data(table_name: str, filters: Dict):
         print(f"Delete data error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# 📸 SUPABASE STORAGE HELPER FUNCTIONS
+def upload_to_supabase_storage(file_content: bytes, bucket: str, file_path: str, content_type: str):
+    """Upload file to Supabase Storage"""
+    try:
+        # Upload to Supabase Storage
+        result = supabase.storage.from_(bucket).upload(
+            file_path, 
+            file_content,
+            file_options={"content-type": content_type}
+        )
+        
+        # Get public URL
+        public_url = supabase.storage.from_(bucket).get_public_url(file_path)
+        
+        return {
+            "success": True,
+            "url": public_url,
+            "path": file_path
+        }
+    except Exception as e:
+        print(f"Supabase storage upload error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def delete_from_supabase_storage(bucket: str, file_path: str):
+    """Delete file from Supabase Storage"""
+    try:
+        result = supabase.storage.from_(bucket).remove([file_path])
+        return {"success": True}
+    except Exception as e:
+        print(f"Supabase storage delete error: {e}")
+        return {"success": False, "error": str(e)}
+
 # Mobile App Endpoints
 
 @app.get("/")
@@ -1657,11 +1692,11 @@ def delete_product(product_id: str):
         print(f"Delete product error: {e}")
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
 
-# 📸 IMAGE UPLOAD APIs
+# 📸 SUPABASE STORAGE IMAGE UPLOAD APIs
 
 @app.post("/admin/upload/product-image/{product_id}")
 async def upload_product_image(product_id: str, file: UploadFile = File(...)):
-    """Upload product image"""
+    """Upload product image to Supabase Storage"""
     try:
         if not supabase:
             raise HTTPException(status_code=500, detail="Database not connected")
@@ -1675,25 +1710,31 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
         if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        # Validate file size (5MB max)
+        # Read file content
         file_content = await file.read()
+        
+        # Validate file size (5MB max)
         if len(file_content) > 5 * 1024 * 1024:  # 5MB
             raise HTTPException(status_code=400, detail="File size must be less than 5MB")
         
-        # Create unique filename
+        # Generate unique filename
         file_extension = file.filename.split('.')[-1] if file.filename and '.' in file.filename else 'jpg'
         unique_filename = f"product_{product_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
-        file_path = UPLOADS_DIR / "products" / unique_filename
+        file_path = f"products/{unique_filename}"
         
-        # Ensure directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # Upload to Supabase Storage
+        upload_result = upload_to_supabase_storage(
+            file_content=file_content,
+            bucket="veggie-images",  # Create this bucket in Supabase
+            file_path=file_path,
+            content_type=file.content_type
+        )
         
-        # Save file
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_content)
+        if not upload_result["success"]:
+            raise HTTPException(status_code=500, detail=f"Upload failed: {upload_result['error']}")
         
-        # Update product with image URL
-        image_url = f"/uploads/products/{unique_filename}"
+        # Update product with Supabase image URL
+        image_url = upload_result["url"]
         update_data = {
             "image_url": image_url,
             "updated_at": datetime.now().isoformat()
@@ -1703,13 +1744,14 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
         
         if result:
             return {
-                "message": "Image uploaded successfully",
+                "message": "Product image uploaded successfully to Supabase",
                 "image_url": image_url,
-                "file_size": len(file_content)
+                "file_size": len(file_content),
+                "storage": "supabase"
             }
         else:
             # Delete uploaded file if product update failed
-            file_path.unlink(missing_ok=True)
+            delete_from_supabase_storage("veggie-images", file_path)
             raise HTTPException(status_code=500, detail="Failed to update product with image")
             
     except HTTPException:
@@ -1720,7 +1762,7 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
 
 @app.post("/admin/upload/category-image/{category_id}")
 async def upload_category_image(category_id: str, file: UploadFile = File(...)):
-    """Upload category image"""
+    """Upload category image to Supabase Storage"""
     try:
         if not supabase:
             raise HTTPException(status_code=500, detail="Database not connected")
@@ -1734,25 +1776,31 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
         if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        # Validate file size (5MB max)
+        # Read file content
         file_content = await file.read()
+        
+        # Validate file size (5MB max)
         if len(file_content) > 5 * 1024 * 1024:  # 5MB
             raise HTTPException(status_code=400, detail="File size must be less than 5MB")
         
-        # Create unique filename
+        # Generate unique filename
         file_extension = file.filename.split('.')[-1] if file.filename and '.' in file.filename else 'jpg'
         unique_filename = f"category_{category_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
-        file_path = UPLOADS_DIR / "categories" / unique_filename
+        file_path = f"categories/{unique_filename}"
         
-        # Ensure directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # Upload to Supabase Storage
+        upload_result = upload_to_supabase_storage(
+            file_content=file_content,
+            bucket="veggie-images",
+            file_path=file_path,
+            content_type=file.content_type
+        )
         
-        # Save file
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_content)
+        if not upload_result["success"]:
+            raise HTTPException(status_code=500, detail=f"Upload failed: {upload_result['error']}")
         
-        # Update category with image URL
-        image_url = f"/uploads/categories/{unique_filename}"
+        # Update category with Supabase image URL
+        image_url = upload_result["url"]
         update_data = {
             "image_url": image_url,
             "updated_at": datetime.now().isoformat()
@@ -1762,13 +1810,14 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
         
         if result:
             return {
-                "message": "Category image uploaded successfully",
+                "message": "Category image uploaded successfully to Supabase",
                 "image_url": image_url,
-                "file_size": len(file_content)
+                "file_size": len(file_content),
+                "storage": "supabase"
             }
         else:
             # Delete uploaded file if category update failed
-            file_path.unlink(missing_ok=True)
+            delete_from_supabase_storage("veggie-images", file_path)
             raise HTTPException(status_code=500, detail="Failed to update category with image")
             
     except HTTPException:
@@ -1779,7 +1828,7 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
 
 @app.delete("/admin/images/product/{product_id}")
 def delete_product_image(product_id: str):
-    """Delete product image"""
+    """Delete product image from Supabase Storage"""
     try:
         # Get product to find current image
         products = get_table_data("products", {"id": product_id})
@@ -1787,15 +1836,21 @@ def delete_product_image(product_id: str):
             raise HTTPException(status_code=404, detail="Product not found")
         
         product = products[0]
-        current_image = product.get("image_url")
+        current_image_url = product.get("image_url")
         
-        if current_image and current_image.startswith("/uploads/"):
-            # Delete physical file
-            try:
-                file_path = Path(current_image[1:])  # Remove leading slash
-                file_path.unlink(missing_ok=True)
-            except Exception as e:
-                print(f"Error deleting physical file: {e}")
+        if current_image_url:
+            # Extract file path from Supabase URL
+            # URL format: https://xxx.supabase.co/storage/v1/object/public/veggie-images/products/filename.jpg
+            if "veggie-images" in current_image_url:
+                # Extract path after bucket name
+                path_parts = current_image_url.split("veggie-images/")
+                if len(path_parts) > 1:
+                    file_path = path_parts[1]
+                    
+                    # Delete from Supabase Storage
+                    delete_result = delete_from_supabase_storage("veggie-images", file_path)
+                    if not delete_result["success"]:
+                        print(f"Warning: Could not delete image from storage: {delete_result['error']}")
         
         # Update product to remove image URL
         update_data = {
@@ -1805,7 +1860,7 @@ def delete_product_image(product_id: str):
         
         update_table_data("products", update_data, {"id": product_id})
         
-        return {"message": "Product image deleted successfully"}
+        return {"message": "Product image deleted successfully from Supabase"}
         
     except HTTPException:
         raise
@@ -1815,7 +1870,7 @@ def delete_product_image(product_id: str):
 
 @app.delete("/admin/images/category/{category_id}")
 def delete_category_image(category_id: str):
-    """Delete category image"""
+    """Delete category image from Supabase Storage"""
     try:
         # Get category to find current image
         categories = get_table_data("categories", {"id": category_id})
@@ -1823,15 +1878,19 @@ def delete_category_image(category_id: str):
             raise HTTPException(status_code=404, detail="Category not found")
         
         category = categories[0]
-        current_image = category.get("image_url")
+        current_image_url = category.get("image_url")
         
-        if current_image and current_image.startswith("/uploads/"):
-            # Delete physical file
-            try:
-                file_path = Path(current_image[1:])  # Remove leading slash
-                file_path.unlink(missing_ok=True)
-            except Exception as e:
-                print(f"Error deleting physical file: {e}")
+        if current_image_url:
+            # Extract file path from Supabase URL
+            if "veggie-images" in current_image_url:
+                path_parts = current_image_url.split("veggie-images/")
+                if len(path_parts) > 1:
+                    file_path = path_parts[1]
+                    
+                    # Delete from Supabase Storage
+                    delete_result = delete_from_supabase_storage("veggie-images", file_path)
+                    if not delete_result["success"]:
+                        print(f"Warning: Could not delete image from storage: {delete_result['error']}")
         
         # Update category to remove image URL
         update_data = {
@@ -1841,13 +1900,54 @@ def delete_category_image(category_id: str):
         
         update_table_data("categories", update_data, {"id": category_id})
         
-        return {"message": "Category image deleted successfully"}
+        return {"message": "Category image deleted successfully from Supabase"}
         
     except HTTPException:
         raise
     except Exception as e:
         print(f"Delete category image error: {e}")
         raise HTTPException(status_code=500, detail=f"Error deleting category image: {str(e)}")
+
+# 🔧 STORAGE MANAGEMENT UTILITY FUNCTIONS
+
+@app.get("/admin/storage/info")
+def get_storage_info():
+    """Get storage bucket information"""
+    try:
+        # List buckets
+        buckets = supabase.storage.list_buckets()
+        
+        return {
+            "storage_provider": "Supabase Storage",
+            "buckets": buckets,
+            "image_bucket": "veggie-images",
+            "features": [
+                "Permanent storage",
+                "CDN delivery", 
+                "Image optimization",
+                "Global distribution"
+            ]
+        }
+    except Exception as e:
+        return {"error": f"Could not fetch storage info: {str(e)}"}
+
+@app.post("/admin/storage/create-bucket")
+def create_storage_bucket():
+    """Create the veggie-images bucket if it doesn't exist"""
+    try:
+        # Create bucket
+        result = supabase.storage.create_bucket(
+            "veggie-images",
+            options={"public": True}  # Make images publicly accessible
+        )
+        
+        return {
+            "message": "Storage bucket created successfully",
+            "bucket": "veggie-images",
+            "public": True
+        }
+    except Exception as e:
+        return {"error": f"Could not create bucket: {str(e)}")
 
 # 🏷️ BANNER MANAGEMENT APIs
 
@@ -2056,9 +2156,28 @@ def get_app_config():
 # Startup event to add mobile-friendly sample data
 @app.on_event("startup")
 async def startup_event():
-    """Add sample data for mobile app"""
+    """Add sample data for mobile app and setup storage"""
     try:
         print("📱 Mobile Veggie App API starting up...")
+        
+        # Check Supabase storage setup
+        print("🗄️ Checking Supabase storage setup...")
+        try:
+            buckets = supabase.storage.list_buckets()
+            bucket_names = [bucket.get("name") for bucket in buckets]
+            
+            if "veggie-images" not in bucket_names:
+                print("📸 Creating veggie-images bucket...")
+                supabase.storage.create_bucket(
+                    "veggie-images",
+                    options={"public": True}
+                )
+                print("✅ Storage bucket created successfully")
+            else:
+                print("✅ Storage bucket already exists")
+        except Exception as e:
+            print(f"⚠️ Storage setup warning: {e}")
+            print("Please create 'veggie-images' bucket manually in Supabase dashboard")
         
         # Check if we need to add sample products
         products = get_table_data("products")
