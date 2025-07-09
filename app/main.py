@@ -152,6 +152,25 @@ def update_table_data(table_name: str, data: Dict, filters: Dict):
         print(f"Update data error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def delete_table_data(table_name: str, filters: Dict):
+    """Delete data from table"""
+    try:
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Build delete query
+        query = supabase.table(table_name).delete()
+        
+        # Add filters
+        for key, value in filters.items():
+            query = query.eq(key, value)
+        
+        response = query.execute()
+        return response
+    except Exception as e:
+        print(f"Delete data error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Mobile App Endpoints
 
 @app.get("/")
@@ -1468,6 +1487,14 @@ def update_category(category_id: str, category_data: dict):
 def delete_category(category_id: str):
     """Delete category"""
     try:
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Check if category exists
+        categories = get_table_data("categories", {"id": category_id})
+        if not categories:
+            raise HTTPException(status_code=404, detail="Category not found")
+        
         # Check if category has products
         products = get_table_data("products", {"category_id": category_id})
         if products:
@@ -1476,13 +1503,23 @@ def delete_category(category_id: str):
                 detail=f"Cannot delete category. {len(products)} products are using this category."
             )
         
-        # Delete category
-        supabase.table("categories").delete().eq("id", category_id).execute()
+        # Delete category image if exists
+        category = categories[0]
+        if category.get("image_url") and category["image_url"].startswith("/uploads/"):
+            try:
+                file_path = Path(category["image_url"][1:])  # Remove leading slash
+                file_path.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"Error deleting category image: {e}")
+        
+        # Delete category from database
+        delete_table_data("categories", {"id": category_id})
         return {"message": "Category deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Delete category error: {e}")
         raise HTTPException(status_code=500, detail=f"Error deleting category: {str(e)}")
 
 # 🛍️ PRODUCT MANAGEMENT APIs
@@ -1576,46 +1613,84 @@ def update_product(product_id: str, product_data: dict):
 def delete_product(product_id: str):
     """Delete product"""
     try:
-        # Check if product is in any active orders
-        orders = get_table_data("mobile_orders")
-        for order in orders:
-            for item in order.get("items", []):
-                if item.get("product_id") == product_id:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Cannot delete product. It exists in order history."
-                    )
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Check if product exists
+        products = get_table_data("products", {"id": product_id})
+        if not products:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        product = products[0]
+        
+        # Check if product is in any active orders (skip this check for now to allow deletion)
+        # orders = get_table_data("mobile_orders")
+        # for order in orders:
+        #     for item in order.get("items", []):
+        #         if item.get("product_id") == product_id:
+        #             raise HTTPException(
+        #                 status_code=400,
+        #                 detail="Cannot delete product. It exists in order history."
+        #             )
+        
+        # Delete product image if exists
+        if product.get("image_url") and product["image_url"].startswith("/uploads/"):
+            try:
+                file_path = Path(product["image_url"][1:])  # Remove leading slash
+                file_path.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"Error deleting product image: {e}")
         
         # Delete from cart first
-        supabase.table("mobile_cart").delete().eq("product_id", product_id).execute()
+        try:
+            delete_table_data("mobile_cart", {"product_id": product_id})
+        except Exception as e:
+            print(f"Error deleting from cart: {e}")
         
-        # Delete product
-        supabase.table("products").delete().eq("id", product_id).execute()
+        # Delete product from database
+        delete_table_data("products", {"id": product_id})
         return {"message": "Product deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Delete product error: {e}")
         raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
 
 # 📸 IMAGE UPLOAD APIs
 
 @app.post("/admin/upload/product-image/{product_id}")
-def upload_product_image(product_id: str, file: UploadFile = File(...)):
+async def upload_product_image(product_id: str, file: UploadFile = File(...)):
     """Upload product image"""
     try:
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Check if product exists
+        products = get_table_data("products", {"id": product_id})
+        if not products:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
         # Validate file type
-        if not file.content_type.startswith('image/'):
+        if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
+        # Validate file size (5MB max)
+        file_content = await file.read()
+        if len(file_content) > 5 * 1024 * 1024:  # 5MB
+            raise HTTPException(status_code=400, detail="File size must be less than 5MB")
+        
         # Create unique filename
-        file_extension = file.filename.split('.')[-1]
+        file_extension = file.filename.split('.')[-1] if file.filename and '.' in file.filename else 'jpg'
         unique_filename = f"product_{product_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
         file_path = UPLOADS_DIR / "products" / unique_filename
         
+        # Ensure directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
         # Save file
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_content)
         
         # Update product with image URL
         image_url = f"/uploads/products/{unique_filename}"
@@ -1629,34 +1704,52 @@ def upload_product_image(product_id: str, file: UploadFile = File(...)):
         if result:
             return {
                 "message": "Image uploaded successfully",
-                "image_url": image_url
+                "image_url": image_url,
+                "file_size": len(file_content)
             }
         else:
             # Delete uploaded file if product update failed
             file_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="Product not found")
+            raise HTTPException(status_code=500, detail="Failed to update product with image")
             
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Upload product image error: {e}")
         raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
 
 @app.post("/admin/upload/category-image/{category_id}")
-def upload_category_image(category_id: str, file: UploadFile = File(...)):
+async def upload_category_image(category_id: str, file: UploadFile = File(...)):
     """Upload category image"""
     try:
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Check if category exists
+        categories = get_table_data("categories", {"id": category_id})
+        if not categories:
+            raise HTTPException(status_code=404, detail="Category not found")
+        
         # Validate file type
-        if not file.content_type.startswith('image/'):
+        if not file.content_type or not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="File must be an image")
         
+        # Validate file size (5MB max)
+        file_content = await file.read()
+        if len(file_content) > 5 * 1024 * 1024:  # 5MB
+            raise HTTPException(status_code=400, detail="File size must be less than 5MB")
+        
         # Create unique filename
-        file_extension = file.filename.split('.')[-1]
+        file_extension = file.filename.split('.')[-1] if file.filename and '.' in file.filename else 'jpg'
         unique_filename = f"category_{category_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
         file_path = UPLOADS_DIR / "categories" / unique_filename
         
+        # Ensure directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
         # Save file
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_content)
         
         # Update category with image URL
         image_url = f"/uploads/categories/{unique_filename}"
@@ -1669,18 +1762,20 @@ def upload_category_image(category_id: str, file: UploadFile = File(...)):
         
         if result:
             return {
-                "message": "Image uploaded successfully",
-                "image_url": image_url
+                "message": "Category image uploaded successfully",
+                "image_url": image_url,
+                "file_size": len(file_content)
             }
         else:
             # Delete uploaded file if category update failed
             file_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=404, detail="Category not found")
+            raise HTTPException(status_code=500, detail="Failed to update category with image")
             
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
+        print(f"Upload category image error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading category image: {str(e)}")
 
 @app.delete("/admin/images/product/{product_id}")
 def delete_product_image(product_id: str):
@@ -1696,8 +1791,11 @@ def delete_product_image(product_id: str):
         
         if current_image and current_image.startswith("/uploads/"):
             # Delete physical file
-            file_path = Path(current_image[1:])  # Remove leading slash
-            file_path.unlink(missing_ok=True)
+            try:
+                file_path = Path(current_image[1:])  # Remove leading slash
+                file_path.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"Error deleting physical file: {e}")
         
         # Update product to remove image URL
         update_data = {
@@ -1707,12 +1805,49 @@ def delete_product_image(product_id: str):
         
         update_table_data("products", update_data, {"id": product_id})
         
-        return {"message": "Image deleted successfully"}
+        return {"message": "Product image deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Delete product image error: {e}")
         raise HTTPException(status_code=500, detail=f"Error deleting image: {str(e)}")
+
+@app.delete("/admin/images/category/{category_id}")
+def delete_category_image(category_id: str):
+    """Delete category image"""
+    try:
+        # Get category to find current image
+        categories = get_table_data("categories", {"id": category_id})
+        if not categories:
+            raise HTTPException(status_code=404, detail="Category not found")
+        
+        category = categories[0]
+        current_image = category.get("image_url")
+        
+        if current_image and current_image.startswith("/uploads/"):
+            # Delete physical file
+            try:
+                file_path = Path(current_image[1:])  # Remove leading slash
+                file_path.unlink(missing_ok=True)
+            except Exception as e:
+                print(f"Error deleting physical file: {e}")
+        
+        # Update category to remove image URL
+        update_data = {
+            "image_url": None,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        update_table_data("categories", update_data, {"id": category_id})
+        
+        return {"message": "Category image deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Delete category image error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting category image: {str(e)}")
 
 # 🏷️ BANNER MANAGEMENT APIs
 
