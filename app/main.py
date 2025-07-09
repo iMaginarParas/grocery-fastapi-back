@@ -1402,6 +1402,431 @@ def get_delivery_analytics():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating delivery analytics: {str(e)}")
 
+# 🏷️ CATEGORY MANAGEMENT APIs
+
+class CategoryCreate(BaseModel):
+    """Create new category"""
+    name: str
+    description: Optional[str] = ""
+    icon: str = "🥬"
+    color: str = "#4CAF50"
+    display_order: int = 1
+    is_active: bool = True
+
+@app.get("/admin/categories")
+def get_admin_categories():
+    """Get all categories for admin management"""
+    try:
+        categories = get_table_data("categories")
+        return {
+            "categories": sorted(categories, key=lambda x: x.get("display_order", 0)),
+            "total_count": len(categories)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
+
+@app.post("/admin/categories")
+def create_category(category: CategoryCreate):
+    """Create new category"""
+    try:
+        category_data = {
+            **category.dict(),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = insert_table_data("categories", category_data)
+        return {
+            "message": "Category created successfully",
+            "category": result.data[0] if result.data else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating category: {str(e)}")
+
+@app.put("/admin/categories/{category_id}")
+def update_category(category_id: str, category_data: dict):
+    """Update category"""
+    try:
+        update_data = {
+            **category_data,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("categories", update_data, {"id": category_id})
+        
+        if result:
+            return {"message": "Category updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Category not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating category: {str(e)}")
+
+@app.delete("/admin/categories/{category_id}")
+def delete_category(category_id: str):
+    """Delete category"""
+    try:
+        # Check if category has products
+        products = get_table_data("products", {"category_id": category_id})
+        if products:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot delete category. {len(products)} products are using this category."
+            )
+        
+        # Delete category
+        supabase.table("categories").delete().eq("id", category_id).execute()
+        return {"message": "Category deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting category: {str(e)}")
+
+# 🛍️ PRODUCT MANAGEMENT APIs
+
+class ProductCreate(BaseModel):
+    """Create new product"""
+    name: str
+    description: str
+    category_id: str
+    base_price: float
+    stock_quantity: int = 0
+    featured: bool = False
+    is_active: bool = True
+    weight_options: List[str] = ["250g", "500g", "1kg"]
+    unit_options: List[int] = [1, 2, 3, 4, 5]
+    discount_percentage: float = 0.0
+
+@app.get("/admin/products")
+def get_admin_products():
+    """Get all products for admin management"""
+    try:
+        products = get_table_data("products")
+        categories = get_table_data("categories")
+        
+        # Enrich products with category info
+        for product in products:
+            category = next((c for c in categories if c["id"] == product["category_id"]), None)
+            if category:
+                product["category"] = category
+        
+        return {
+            "products": sorted(products, key=lambda x: x.get("created_at", ""), reverse=True),
+            "total_count": len(products)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching products: {str(e)}")
+
+@app.post("/admin/products")
+def create_product(product: ProductCreate):
+    """Create new product"""
+    try:
+        # Validate category exists
+        categories = get_table_data("categories", {"id": product.category_id})
+        if not categories:
+            raise HTTPException(status_code=400, detail="Category not found")
+        
+        product_data = {
+            **product.dict(),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = insert_table_data("products", product_data)
+        return {
+            "message": "Product created successfully",
+            "product": result.data[0] if result.data else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating product: {str(e)}")
+
+@app.put("/admin/products/{product_id}")
+def update_product(product_id: str, product_data: dict):
+    """Update product"""
+    try:
+        # If category_id is being updated, validate it exists
+        if "category_id" in product_data:
+            categories = get_table_data("categories", {"id": product_data["category_id"]})
+            if not categories:
+                raise HTTPException(status_code=400, detail="Category not found")
+        
+        update_data = {
+            **product_data,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("products", update_data, {"id": product_id})
+        
+        if result:
+            return {"message": "Product updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Product not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating product: {str(e)}")
+
+@app.delete("/admin/products/{product_id}")
+def delete_product(product_id: str):
+    """Delete product"""
+    try:
+        # Check if product is in any active orders
+        orders = get_table_data("mobile_orders")
+        for order in orders:
+            for item in order.get("items", []):
+                if item.get("product_id") == product_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot delete product. It exists in order history."
+                    )
+        
+        # Delete from cart first
+        supabase.table("mobile_cart").delete().eq("product_id", product_id).execute()
+        
+        # Delete product
+        supabase.table("products").delete().eq("id", product_id).execute()
+        return {"message": "Product deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting product: {str(e)}")
+
+# 📸 IMAGE UPLOAD APIs
+
+@app.post("/admin/upload/product-image/{product_id}")
+def upload_product_image(product_id: str, file: UploadFile = File(...)):
+    """Upload product image"""
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Create unique filename
+        file_extension = file.filename.split('.')[-1]
+        unique_filename = f"product_{product_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+        file_path = UPLOADS_DIR / "products" / unique_filename
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update product with image URL
+        image_url = f"/uploads/products/{unique_filename}"
+        update_data = {
+            "image_url": image_url,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("products", update_data, {"id": product_id})
+        
+        if result:
+            return {
+                "message": "Image uploaded successfully",
+                "image_url": image_url
+            }
+        else:
+            # Delete uploaded file if product update failed
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=404, detail="Product not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
+
+@app.post("/admin/upload/category-image/{category_id}")
+def upload_category_image(category_id: str, file: UploadFile = File(...)):
+    """Upload category image"""
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Create unique filename
+        file_extension = file.filename.split('.')[-1]
+        unique_filename = f"category_{category_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+        file_path = UPLOADS_DIR / "categories" / unique_filename
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update category with image URL
+        image_url = f"/uploads/categories/{unique_filename}"
+        update_data = {
+            "image_url": image_url,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("categories", update_data, {"id": category_id})
+        
+        if result:
+            return {
+                "message": "Image uploaded successfully",
+                "image_url": image_url
+            }
+        else:
+            # Delete uploaded file if category update failed
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=404, detail="Category not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
+
+@app.delete("/admin/images/product/{product_id}")
+def delete_product_image(product_id: str):
+    """Delete product image"""
+    try:
+        # Get product to find current image
+        products = get_table_data("products", {"id": product_id})
+        if not products:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        product = products[0]
+        current_image = product.get("image_url")
+        
+        if current_image and current_image.startswith("/uploads/"):
+            # Delete physical file
+            file_path = Path(current_image[1:])  # Remove leading slash
+            file_path.unlink(missing_ok=True)
+        
+        # Update product to remove image URL
+        update_data = {
+            "image_url": None,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        update_table_data("products", update_data, {"id": product_id})
+        
+        return {"message": "Image deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting image: {str(e)}")
+
+# 🏷️ BANNER MANAGEMENT APIs
+
+class BannerCreate(BaseModel):
+    """Create new banner"""
+    title: str
+    description: Optional[str] = ""
+    link_url: Optional[str] = "/products"
+    display_order: int = 1
+    is_active: bool = True
+
+@app.get("/admin/banners")
+def get_admin_banners():
+    """Get all banners for admin management"""
+    try:
+        banners = get_table_data("banners")
+        return {
+            "banners": sorted(banners, key=lambda x: x.get("display_order", 0)),
+            "total_count": len(banners)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching banners: {str(e)}")
+
+@app.post("/admin/banners")
+def create_banner(banner: BannerCreate):
+    """Create new banner"""
+    try:
+        banner_data = {
+            **banner.dict(),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = insert_table_data("banners", banner_data)
+        return {
+            "message": "Banner created successfully",
+            "banner": result.data[0] if result.data else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating banner: {str(e)}")
+
+@app.put("/admin/banners/{banner_id}")
+def update_banner(banner_id: str, banner_data: dict):
+    """Update banner"""
+    try:
+        update_data = {
+            **banner_data,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("banners", update_data, {"id": banner_id})
+        
+        if result:
+            return {"message": "Banner updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Banner not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating banner: {str(e)}")
+
+@app.delete("/admin/banners/{banner_id}")
+def delete_banner(banner_id: str):
+    """Delete banner"""
+    try:
+        supabase.table("banners").delete().eq("id", banner_id).execute()
+        return {"message": "Banner deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting banner: {str(e)}")
+
+@app.post("/admin/upload/banner-image/{banner_id}")
+def upload_banner_image(banner_id: str, file: UploadFile = File(...)):
+    """Upload banner image"""
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Create unique filename
+        file_extension = file.filename.split('.')[-1]
+        unique_filename = f"banner_{banner_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+        file_path = UPLOADS_DIR / "banners" / unique_filename
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update banner with image URL
+        image_url = f"/uploads/banners/{unique_filename}"
+        update_data = {
+            "image_url": image_url,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("banners", update_data, {"id": banner_id})
+        
+        if result:
+            return {
+                "message": "Banner image uploaded successfully",
+                "image_url": image_url
+            }
+        else:
+            # Delete uploaded file if banner update failed
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=404, detail="Banner not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error uploading banner image: {str(e)}")
+
+# 📊 DELIVERY ANALYTICS
+
 # 🛍️ ADDITIONAL MOBILE APP FEATURES
 
 @app.get("/app/delivery-slots")
