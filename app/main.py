@@ -1798,7 +1798,7 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
 
 @app.post("/admin/upload/category-image/{category_id}")
 async def upload_category_image(category_id: str, file: UploadFile = File(...)):
-    """Upload category image to Supabase Storage"""
+    """Upload category image to Supabase Storage (with local fallback)"""
     try:
         if not supabase:
             raise HTTPException(status_code=500, detail="Database not connected")
@@ -1824,7 +1824,7 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
         unique_filename = f"category_{category_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
         file_path = f"categories/{unique_filename}"
         
-        # Upload to Supabase Storage
+        # Try Supabase Storage first
         upload_result = upload_to_supabase_storage(
             file_content=file_content,
             bucket="veggie-images",
@@ -1832,11 +1832,25 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
             content_type=file.content_type
         )
         
-        if not upload_result["success"]:
-            raise HTTPException(status_code=500, detail=f"Upload failed: {upload_result['error']}")
+        if upload_result["success"]:
+            # Supabase upload successful
+            image_url = upload_result["url"]
+            storage_type = "supabase"
+        else:
+            # Fallback to local storage
+            print(f"⚠️ Supabase upload failed: {upload_result['error']}")
+            print("📁 Falling back to local storage")
+            
+            local_file_path = UPLOADS_DIR / "categories" / unique_filename
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(local_file_path, "wb") as buffer:
+                buffer.write(file_content)
+            
+            image_url = f"/uploads/categories/{unique_filename}"
+            storage_type = "local"
         
-        # Update category with Supabase image URL
-        image_url = upload_result["url"]
+        # Update category with image URL
         update_data = {
             "image_url": image_url,
             "updated_at": datetime.now().isoformat()
@@ -1846,14 +1860,17 @@ async def upload_category_image(category_id: str, file: UploadFile = File(...)):
         
         if result:
             return {
-                "message": "Category image uploaded successfully to Supabase",
+                "message": f"Category image uploaded successfully to {storage_type} storage",
                 "image_url": image_url,
                 "file_size": len(file_content),
-                "storage": "supabase"
+                "storage": storage_type
             }
         else:
-            # Delete uploaded file if category update failed
-            delete_from_supabase_storage("veggie-images", file_path)
+            # Clean up uploaded file if category update failed
+            if storage_type == "supabase":
+                delete_from_supabase_storage("veggie-images", file_path)
+            else:
+                local_file_path.unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail="Failed to update category with image")
             
     except HTTPException:
@@ -1986,6 +2003,157 @@ def create_storage_bucket():
         return {"error": f"Could not create bucket: {str(e)}")
 
 # 🏷️ BANNER MANAGEMENT APIs
+
+class BannerCreate(BaseModel):
+    """Create new banner"""
+    title: str
+    description: Optional[str] = ""
+    link_url: Optional[str] = "/products"
+    display_order: int = 1
+    is_active: bool = True
+
+@app.get("/admin/banners")
+def get_admin_banners():
+    """Get all banners for admin management"""
+    try:
+        banners = get_table_data("banners")
+        return {
+            "banners": sorted(banners, key=lambda x: x.get("display_order", 0)),
+            "total_count": len(banners)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching banners: {str(e)}")
+
+@app.post("/admin/banners")
+def create_banner(banner: BannerCreate):
+    """Create new banner"""
+    try:
+        banner_data = {
+            **banner.dict(),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = insert_table_data("banners", banner_data)
+        return {
+            "message": "Banner created successfully",
+            "banner": result.data[0] if result.data else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating banner: {str(e)}")
+
+@app.put("/admin/banners/{banner_id}")
+def update_banner(banner_id: str, banner_data: dict):
+    """Update banner"""
+    try:
+        update_data = {
+            **banner_data,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("banners", update_data, {"id": banner_id})
+        
+        if result:
+            return {"message": "Banner updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Banner not found")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating banner: {str(e)}")
+
+@app.delete("/admin/banners/{banner_id}")
+def delete_banner(banner_id: str):
+    """Delete banner"""
+    try:
+        delete_table_data("banners", {"id": banner_id})
+        return {"message": "Banner deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting banner: {str(e)}")
+
+@app.post("/admin/upload/banner-image/{banner_id}")
+async def upload_banner_image(banner_id: str, file: UploadFile = File(...)):
+    """Upload banner image to Supabase Storage"""
+    try:
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Check if banner exists
+        banners = get_table_data("banners", {"id": banner_id})
+        if not banners:
+            raise HTTPException(status_code=404, detail="Banner not found")
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Read file content
+        file_content = await file.read()
+        
+        # Validate file size (10MB max for banners)
+        if len(file_content) > 10 * 1024 * 1024:  # 10MB
+            raise HTTPException(status_code=400, detail="File size must be less than 10MB")
+        
+        # Generate unique filename
+        file_extension = file.filename.split('.')[-1] if file.filename and '.' in file.filename else 'jpg'
+        unique_filename = f"banner_{banner_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+        file_path = f"banners/{unique_filename}"
+        
+        # Try Supabase Storage first
+        upload_result = upload_to_supabase_storage(
+            file_content=file_content,
+            bucket="veggie-images",
+            file_path=file_path,
+            content_type=file.content_type
+        )
+        
+        if upload_result["success"]:
+            # Supabase upload successful
+            image_url = upload_result["url"]
+            storage_type = "supabase"
+        else:
+            # Fallback to local storage
+            print(f"⚠️ Supabase upload failed: {upload_result['error']}")
+            print("📁 Falling back to local storage")
+            
+            local_file_path = UPLOADS_DIR / "banners" / unique_filename
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(local_file_path, "wb") as buffer:
+                buffer.write(file_content)
+            
+            image_url = f"/uploads/banners/{unique_filename}"
+            storage_type = "local"
+        
+        # Update banner with image URL
+        update_data = {
+            "image_url": image_url,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        result = update_table_data("banners", update_data, {"id": banner_id})
+        
+        if result:
+            return {
+                "message": f"Banner image uploaded successfully to {storage_type} storage",
+                "image_url": image_url,
+                "file_size": len(file_content),
+                "storage": storage_type
+            }
+        else:
+            # Clean up uploaded file if banner update failed
+            if storage_type == "supabase":
+                delete_from_supabase_storage("veggie-images", file_path)
+            else:
+                local_file_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail="Failed to update banner with image")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload banner image error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error uploading banner image: {str(e)}")
 
 class BannerCreate(BaseModel):
     """Create new banner"""
