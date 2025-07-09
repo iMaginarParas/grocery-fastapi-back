@@ -175,6 +175,22 @@ def delete_table_data(table_name: str, filters: Dict):
 def upload_to_supabase_storage(file_content: bytes, bucket: str, file_path: str, content_type: str):
     """Upload file to Supabase Storage"""
     try:
+        if not supabase:
+            return {"success": False, "error": "Supabase not connected"}
+        
+        # Check if bucket exists first
+        try:
+            buckets = supabase.storage.list_buckets()
+            bucket_names = [b.get("name") for b in buckets]
+            
+            if bucket not in bucket_names:
+                # Try to create bucket
+                supabase.storage.create_bucket(bucket, options={"public": True})
+                print(f"✅ Created bucket: {bucket}")
+        except Exception as bucket_error:
+            print(f"⚠️ Bucket check/creation error: {bucket_error}")
+            return {"success": False, "error": f"Bucket issue: {bucket_error}"}
+        
         # Upload to Supabase Storage
         result = supabase.storage.from_(bucket).upload(
             file_path, 
@@ -200,6 +216,9 @@ def upload_to_supabase_storage(file_content: bytes, bucket: str, file_path: str,
 def delete_from_supabase_storage(bucket: str, file_path: str):
     """Delete file from Supabase Storage"""
     try:
+        if not supabase:
+            return {"success": False, "error": "Supabase not connected"}
+            
         result = supabase.storage.from_(bucket).remove([file_path])
         return {"success": True}
     except Exception as e:
@@ -1696,7 +1715,7 @@ def delete_product(product_id: str):
 
 @app.post("/admin/upload/product-image/{product_id}")
 async def upload_product_image(product_id: str, file: UploadFile = File(...)):
-    """Upload product image to Supabase Storage"""
+    """Upload product image to Supabase Storage (with local fallback)"""
     try:
         if not supabase:
             raise HTTPException(status_code=500, detail="Database not connected")
@@ -1722,19 +1741,33 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
         unique_filename = f"product_{product_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
         file_path = f"products/{unique_filename}"
         
-        # Upload to Supabase Storage
+        # Try Supabase Storage first
         upload_result = upload_to_supabase_storage(
             file_content=file_content,
-            bucket="veggie-images",  # Create this bucket in Supabase
+            bucket="veggie-images",
             file_path=file_path,
             content_type=file.content_type
         )
         
-        if not upload_result["success"]:
-            raise HTTPException(status_code=500, detail=f"Upload failed: {upload_result['error']}")
+        if upload_result["success"]:
+            # Supabase upload successful
+            image_url = upload_result["url"]
+            storage_type = "supabase"
+        else:
+            # Fallback to local storage
+            print(f"⚠️ Supabase upload failed: {upload_result['error']}")
+            print("📁 Falling back to local storage")
+            
+            local_file_path = UPLOADS_DIR / "products" / unique_filename
+            local_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(local_file_path, "wb") as buffer:
+                buffer.write(file_content)
+            
+            image_url = f"/uploads/products/{unique_filename}"
+            storage_type = "local"
         
-        # Update product with Supabase image URL
-        image_url = upload_result["url"]
+        # Update product with image URL
         update_data = {
             "image_url": image_url,
             "updated_at": datetime.now().isoformat()
@@ -1744,14 +1777,17 @@ async def upload_product_image(product_id: str, file: UploadFile = File(...)):
         
         if result:
             return {
-                "message": "Product image uploaded successfully to Supabase",
+                "message": f"Product image uploaded successfully to {storage_type} storage",
                 "image_url": image_url,
                 "file_size": len(file_content),
-                "storage": "supabase"
+                "storage": storage_type
             }
         else:
-            # Delete uploaded file if product update failed
-            delete_from_supabase_storage("veggie-images", file_path)
+            # Clean up uploaded file if product update failed
+            if storage_type == "supabase":
+                delete_from_supabase_storage("veggie-images", file_path)
+            else:
+                local_file_path.unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail="Failed to update product with image")
             
     except HTTPException:
@@ -2160,35 +2196,49 @@ async def startup_event():
     try:
         print("📱 Mobile Veggie App API starting up...")
         
-        # Check Supabase storage setup
+        # Check Supabase storage setup (non-blocking)
         print("🗄️ Checking Supabase storage setup...")
         try:
-            buckets = supabase.storage.list_buckets()
-            bucket_names = [bucket.get("name") for bucket in buckets]
-            
-            if "veggie-images" not in bucket_names:
-                print("📸 Creating veggie-images bucket...")
-                supabase.storage.create_bucket(
-                    "veggie-images",
-                    options={"public": True}
-                )
-                print("✅ Storage bucket created successfully")
+            if supabase:
+                buckets = supabase.storage.list_buckets()
+                bucket_names = [bucket.get("name") for bucket in buckets]
+                
+                if "veggie-images" not in bucket_names:
+                    print("📸 Creating veggie-images bucket...")
+                    try:
+                        supabase.storage.create_bucket(
+                            "veggie-images",
+                            options={"public": True}
+                        )
+                        print("✅ Storage bucket created successfully")
+                    except Exception as create_error:
+                        print(f"⚠️ Could not create bucket: {create_error}")
+                        print("📝 Please create 'veggie-images' bucket manually in Supabase dashboard")
+                else:
+                    print("✅ Storage bucket already exists")
             else:
-                print("✅ Storage bucket already exists")
-        except Exception as e:
-            print(f"⚠️ Storage setup warning: {e}")
-            print("Please create 'veggie-images' bucket manually in Supabase dashboard")
+                print("⚠️ Supabase not connected - storage features will be limited")
+        except Exception as storage_error:
+            print(f"⚠️ Storage setup warning: {storage_error}")
+            print("📝 Storage features may be limited. App will continue without storage.")
         
         # Check if we need to add sample products
-        products = get_table_data("products")
-        if len(products) < 8:
-            print("🥬 Adding mobile-friendly vegetable products...")
-            await add_mobile_veggie_products()
+        try:
+            products = get_table_data("products")
+            if len(products) < 8:
+                print("🥬 Adding mobile-friendly vegetable products...")
+                await add_mobile_veggie_products()
+            
+            print(f"✅ Mobile app ready with {len(products)} products")
+        except Exception as products_error:
+            print(f"⚠️ Could not load products: {products_error}")
+            print("📝 App will continue with existing data")
         
-        print(f"✅ Mobile app ready with {len(products)} products")
+        print("🎉 Startup completed successfully!")
         
     except Exception as e:
-        print(f"❌ Startup error: {e}")
+        print(f"⚠️ Startup warning: {e}")
+        print("📝 App will continue to run despite startup issues")
 
 async def add_mobile_veggie_products():
     """Add mobile app optimized vegetables"""
