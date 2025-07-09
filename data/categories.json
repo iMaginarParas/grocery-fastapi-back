@@ -1,0 +1,38 @@
+[
+  {
+    "id": "cat1",
+    "name": "Vegetables",
+    "description": "Fresh seasonal vegetables",
+    "icon": "🥕",
+    "color": "#4CAF50",
+    "display_order": 1,
+    "is_active": true
+  },
+  {
+    "id": "cat2",
+    "name": "Exotics",
+    "description": "Exotic and imported vegetables",
+    "icon": "🥑",
+    "color": "#FF9800",
+    "display_order": 2,
+    "is_active": true
+  },
+  {
+    "id": "cat3",
+    "name": "Onion & Potato",
+    "description": "Daily essentials",
+    "icon": "🧅",
+    "color": "#795548",
+    "display_order": 3,
+    "is_active": true
+  },
+  {
+    "id": "cat4",
+    "name": "Leafy Vegetables",
+    "description": "Fresh green leafy vegetables",
+    "icon": "🥬",
+    "color": "#8BC34A",
+    "display_order": 4,
+    "is_active": true
+  }
+]

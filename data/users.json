@@ -1,0 +1,12 @@
+{
+  "9876543210": {
+    "id": "user_1",
+    "name": "paras",
+    "phone": "9876543210",
+    "password": "password123",
+    "is_active": true,
+    "is_verified": false,
+    "created_at": "2024-12-30T20:15:00Z",
+    "updated_at": "2024-12-30T20:15:00Z"
+  }
+}

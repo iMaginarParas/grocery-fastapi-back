@@ -1,0 +1,324 @@
+[
+  {
+    "id": "prod2",
+    "name": "Carrot",
+    "description": "Fresh orange carrots, rich in vitamins",
+    "category_id": "cat1",
+    "base_price": 35.0,
+    "stock_quantity": 79,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "250g",
+      "500g",
+      "1kg"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat1",
+      "name": "Vegetables",
+      "description": "Fresh seasonal vegetables",
+      "icon": "🥕",
+      "color": "#4CAF50",
+      "display_order": 1,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod3",
+    "name": "Cucumber",
+    "description": "Fresh green cucumbers, crisp and refreshing",
+    "category_id": "cat1",
+    "base_price": 30.0,
+    "stock_quantity": 59,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "250g",
+      "500g",
+      "1kg"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat1",
+      "name": "Vegetables",
+      "description": "Fresh seasonal vegetables",
+      "icon": "🥕",
+      "color": "#4CAF50",
+      "display_order": 1,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod4",
+    "name": "Bell Pepper",
+    "description": "Fresh colorful bell peppers, sweet and crunchy",
+    "category_id": "cat1",
+    "base_price": 80.0,
+    "stock_quantity": 39,
+    "featured": true,
+    "is_active": true,
+    "weight_options": [
+      "250g",
+      "500g",
+      "1kg"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat1",
+      "name": "Vegetables",
+      "description": "Fresh seasonal vegetables",
+      "icon": "🥕",
+      "color": "#4CAF50",
+      "display_order": 1,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod5",
+    "name": "Broccoli",
+    "description": "Fresh green broccoli, superfood vegetable",
+    "category_id": "cat2",
+    "base_price": 120.0,
+    "stock_quantity": 30,
+    "featured": true,
+    "is_active": true,
+    "weight_options": [
+      "250g",
+      "500g"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat2",
+      "name": "Exotics",
+      "description": "Exotic and imported vegetables",
+      "icon": "🥑",
+      "color": "#FF9800",
+      "display_order": 2,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod6",
+    "name": "Avocado",
+    "description": "Fresh ripe avocados, creamy and nutritious",
+    "category_id": "cat2",
+    "base_price": 200.0,
+    "stock_quantity": 20,
+    "featured": true,
+    "is_active": true,
+    "weight_options": [
+      "1 piece",
+      "2 pieces",
+      "4 pieces"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat2",
+      "name": "Exotics",
+      "description": "Exotic and imported vegetables",
+      "icon": "🥑",
+      "color": "#FF9800",
+      "display_order": 2,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod7",
+    "name": "Onions",
+    "description": "Fresh red onions, kitchen essential",
+    "category_id": "cat3",
+    "base_price": 25.0,
+    "stock_quantity": 200,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "500g",
+      "1kg",
+      "2kg"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat3",
+      "name": "Onion & Potato",
+      "description": "Daily essentials",
+      "icon": "🧅",
+      "color": "#795548",
+      "display_order": 3,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod8",
+    "name": "Potatoes",
+    "description": "Fresh potatoes, versatile and nutritious",
+    "category_id": "cat3",
+    "base_price": 30.0,
+    "stock_quantity": 150,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "500g",
+      "1kg",
+      "2kg"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat3",
+      "name": "Onion & Potato",
+      "description": "Daily essentials",
+      "icon": "🧅",
+      "color": "#795548",
+      "display_order": 3,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod9",
+    "name": "Spinach",
+    "description": "Fresh green spinach leaves, iron-rich superfood",
+    "category_id": "cat4",
+    "base_price": 30.0,
+    "stock_quantity": 50,
+    "featured": true,
+    "is_active": true,
+    "weight_options": [
+      "250g",
+      "500g"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat4",
+      "name": "Leafy Vegetables",
+      "description": "Fresh green leafy vegetables",
+      "icon": "🥬",
+      "color": "#8BC34A",
+      "display_order": 4,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod10",
+    "name": "Lettuce",
+    "description": "Fresh lettuce leaves, perfect for salads",
+    "category_id": "cat4",
+    "base_price": 60.0,
+    "stock_quantity": 40,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "1 head",
+      "2 heads"
+    ],
+    "unit_options": [
+      1,
+      2,
+      3
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat4",
+      "name": "Leafy Vegetables",
+      "description": "Fresh green leafy vegetables",
+      "icon": "🥬",
+      "color": "#8BC34A",
+      "display_order": 4,
+      "is_active": true
+    }
+  },
+  {
+    "id": "prod11",
+    "name": "paras",
+    "description": "Paras",
+    "category_id": "cat2",
+    "base_price": 12.0,
+    "stock_quantity": 1,
+    "featured": false,
+    "is_active": true,
+    "weight_options": [
+      "250"
+    ],
+    "unit_options": [
+      1
+    ],
+    "discount_percentage": 0,
+    "image_url": null,
+    "category": {
+      "id": "cat2",
+      "name": "Exotics",
+      "description": "Exotic and imported vegetables",
+      "icon": "🥑",
+      "color": "#FF9800",
+      "display_order": 2,
+      "is_active": true
+    }
+  }
+]
